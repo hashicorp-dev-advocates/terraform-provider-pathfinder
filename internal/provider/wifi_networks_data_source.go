@@ -110,6 +110,9 @@ func (d *WifiNetworksDataSource) Read(ctx context.Context, req datasource.ReadRe
 		io.NopCloser(strings.NewReader("")),
 	)
 
+	// Example of setting a custom header, such as an API key
+	// httpReq.Header.Set("x-api-key", d.client.Config.ApiKey)
+
 	ctx = tflog.SetField(ctx, "endpoint", httpReq.URL.String())
 	ctx = tflog.SetField(ctx, "method", httpReq.Method)
 	tflog.Debug(ctx, fmt.Sprintf("Sending %s request to: %s", httpReq.Method, httpReq.URL.String()))
