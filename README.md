@@ -1,7 +1,7 @@
 # Terraform Provider: Pathfinder
 
 > [!CAUTION]
-> HashiCorp Forge is a place where we share experimental software. These providers are rapidly evolving and might change in breaking ways. We can't guarantee their stability or that they'll be consistently available. We recommend using this Terraform Provider for experimentation and feedback only.
+> HashiCorp Dev Advocates is a place where we share experimental software. These providers are rapidly evolving and might change in breaking ways. We can't guarantee their stability or that they'll be consistently available. We recommend using this Terraform Provider for experimentation and feedback only.
 
 The [Pathfinder Terraform provider]((https://registry.terraform.io/providers/hashicorp-dev-advocates/pathfinder/latest/docs)) allows you to interact with the Pathfinder API. The Pathfinder API provides movement planning for the Wave Rover, an unmanned ground vehicle (UGV) developed by Waveshare.
 
