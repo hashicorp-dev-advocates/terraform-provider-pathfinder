@@ -3,7 +3,7 @@
 
 package model
 
-// Response containing the movement operation status
+// Response containing the movement operation status.
 type MovementResponse struct {
 	// Status of the movement operation
 	Moving bool `json:"moving"`

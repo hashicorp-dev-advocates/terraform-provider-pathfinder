@@ -3,7 +3,7 @@
 
 package model
 
-// Response containing the movement lock status
+// Response containing the movement lock status.
 type MovementLockResponse struct {
 	// Movement lock status
 	Locked bool `json:"locked"`

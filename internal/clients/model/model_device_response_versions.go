@@ -3,7 +3,7 @@
 
 package model
 
-// Versions
+// Versions.
 type DeviceResponseVersions struct {
 	// API version
 	Api string `json:"api"`

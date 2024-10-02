@@ -3,7 +3,7 @@
 
 package model
 
-// Response containing the reboot status
+// Response containing the reboot status.
 type DeviceRebootResponse struct {
 	// Reboot status
 	Rebooting bool `json:"rebooting"`

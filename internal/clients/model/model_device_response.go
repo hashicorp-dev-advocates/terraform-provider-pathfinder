@@ -3,7 +3,7 @@
 
 package model
 
-// Response containing the device status
+// Response containing the device status.
 type DeviceResponse struct {
 	// Feature flags
 	Features    map[string]bool            `json:"features"`

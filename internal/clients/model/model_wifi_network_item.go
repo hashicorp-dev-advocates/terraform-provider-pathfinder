@@ -3,7 +3,7 @@
 
 package model
 
-// Structure of a single Wi-Fi network item
+// Structure of a single Wi-Fi network item.
 type WifiNetworkItem struct {
 	// Encryption status
 	Encrypted bool `json:"encrypted"`

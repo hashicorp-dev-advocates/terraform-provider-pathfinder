@@ -3,7 +3,7 @@
 
 package model
 
-// Request for a movement
+// Request for a movement.
 type MovementRequest struct {
 	// Name of the movement plan
 	Name string `json:"name"`

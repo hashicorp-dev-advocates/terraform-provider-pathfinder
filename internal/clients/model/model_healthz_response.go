@@ -3,7 +3,7 @@
 
 package model
 
-// Response containing the health status
+// Response containing the health status.
 type HealthzResponse struct {
 	// Health status
 	Healthy bool `json:"healthy"`

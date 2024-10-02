@@ -3,7 +3,7 @@
 
 package model
 
-// Structure of a single movement step
+// Structure of a single movement step.
 type MovementStepItem struct {
 	// Angle (in degrees) of movement
 	Angle int64 `json:"angle"`

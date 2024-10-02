@@ -3,7 +3,7 @@
 
 package model
 
-// Response containing the error message
+// Response containing the error message.
 type ErrorResponse struct {
 	// Error message
 	Message string `json:"message"`

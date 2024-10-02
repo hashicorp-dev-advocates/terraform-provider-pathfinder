@@ -3,7 +3,7 @@
 
 package model
 
-// Response containing the readiness status
+// Response containing the readiness status.
 type ReadyzResponse struct {
 	// Readiness status
 	Ready bool `json:"ready"`

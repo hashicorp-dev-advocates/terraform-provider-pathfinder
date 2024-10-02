@@ -1,6 +1,6 @@
 module github.com/hashicorp-dev-advocates/terraform-provider-pathfinder
 
-go 1.21
+go 1.23
 
 require (
 	github.com/hashicorp/terraform-plugin-framework v1.10.0

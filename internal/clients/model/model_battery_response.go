@@ -3,7 +3,7 @@
 
 package model
 
-// Structure of a single battery item
+// Structure of a single battery item.
 type BatteryResponse struct {
 	// Unit of the battery item
 	Unit string `json:"unit"`

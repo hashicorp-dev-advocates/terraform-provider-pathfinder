@@ -3,7 +3,7 @@
 
 package model
 
-// Identifiers
+// Identifiers.
 type DeviceResponseIdentifiers struct {
 	// Long identifier
 	Long string `json:"long"`
