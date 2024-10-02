@@ -167,6 +167,9 @@ func (r *MovementResource) Create(ctx context.Context, req resource.CreateReques
 		bytes.NewBuffer(httpReqBody),
 	)
 
+	// Example of setting a custom header, such as an API key
+	// httpReq.Header.Set("x-api-key", d.client.Config.ApiKey)
+
 	ctx = tflog.SetField(ctx, "endpoint", httpReq.URL.String())
 	ctx = tflog.SetField(ctx, "method", httpReq.Method)
 	tflog.Debug(ctx, fmt.Sprintf("Sending %s request to: %s with body: %s", httpReq.Method, httpReq.URL.String(), httpReqBody))

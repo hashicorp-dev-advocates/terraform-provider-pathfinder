@@ -72,6 +72,7 @@ func (p *PathfinderProvider) Configure(ctx context.Context, req provider.Configu
 	// Prepare client configuration
 	cfg := clients.ClientConfig{
 		Address: providerConfig.Address.ValueString(),
+		ApiKey:  providerConfig.ApiKey.ValueString(),
 	}
 
 	tflog.Debug(ctx, fmt.Sprintf("Configuring Pathfinder provider using configuration: %v", cfg))
