@@ -39,6 +39,7 @@ type MovementResource struct {
 
 // MoveForwardResourceModel describes the resource data model.
 type MovementResourceModel struct {
+	Id      types.String         `tfsdk:"id"`
 	Name    types.String         `tfsdk:"name"`
 	Persist types.Bool           `tfsdk:"persist"`
 	Steps   []MovementStepsModel `tfsdk:"steps"`
@@ -60,6 +61,9 @@ func (r *MovementResource) Schema(ctx context.Context, req resource.SchemaReques
 		MarkdownDescription: "Instructs the device to move in a specific direction.",
 
 		Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{
+				Computed: true,
+			},
 			"name": schema.StringAttribute{
 				MarkdownDescription: "Name of the movement plan to execute.",
 				Required:            true,
@@ -163,7 +167,7 @@ func (r *MovementResource) Create(ctx context.Context, req resource.CreateReques
 	httpReq, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
-		fmt.Sprintf("%s/v1/movement", r.client.Config.Address),
+		fmt.Sprintf("%s/v1/movement-plan", r.client.Config.Address),
 		bytes.NewBuffer(httpReqBody),
 	)
 
@@ -203,22 +207,24 @@ func (r *MovementResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	var readResp model.MovementResponse
-	err = json.NewDecoder(httpResp.Body).Decode(&readResp)
+	// var readResp model.MovementResponse
+	// err = json.NewDecoder(httpResp.Body).Decode(&readResp)
 
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Refresh Resource",
-			"An unexpected error occurred while parsing the resource read response. "+
-				"Please report this issue to the provider developers.\n\n"+
-				"JSON Error: "+err.Error(),
-		)
+	// if err != nil {
+	// 	resp.Diagnostics.AddError(
+	// 		"Unable to Refresh Resource",
+	// 		"An unexpected error occurred while parsing the resource read response. "+
+	// 			"Please report this issue to the provider developers.\n\n"+
+	// 			"JSON Error: "+err.Error(),
+	// 	)
 
-		return
-	}
+	// 	return
+	// }
 
 	// Save data into Terraform state
-	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+
+	data.Id = types.StringValue(data.Name.ValueString())
+	resp.Diagnostics.Append(resp.State.Set(ctx, data)...)
 }
 
 func (r *MovementResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -232,60 +238,61 @@ func (r *MovementResource) Read(ctx context.Context, req resource.ReadRequest, r
 	}
 
 	// Create an empty HTTP GET request
-	httpReq, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodGet,
-		fmt.Sprintf("%s/v1/movement", r.client.Config.Address),
-		io.NopCloser(strings.NewReader("")),
-	)
+	// httpReq, err := http.NewRequestWithContext(
+	// 	ctx,
+	// 	http.MethodGet,
+	// 	fmt.Sprintf("%s/v1/movement-plan", r.client.Config.Address),
+	// 	io.NopCloser(strings.NewReader("")),
+	// )
 
-	ctx = tflog.SetField(ctx, "endpoint", httpReq.URL.String())
-	ctx = tflog.SetField(ctx, "method", httpReq.Method)
-	tflog.Debug(ctx, fmt.Sprintf("Sending %s request to: %s", httpReq.Method, httpReq.URL.String()))
+	// ctx = tflog.SetField(ctx, "endpoint", httpReq.URL.String())
+	// ctx = tflog.SetField(ctx, "method", httpReq.Method)
+	// tflog.Debug(ctx, fmt.Sprintf("Sending %s request to: %s", httpReq.Method, httpReq.URL.String()))
 
-	if err != nil {
-		// handle error
-		fmt.Println("Error creating request:", err)
-		return
-	}
+	// if err != nil {
+	// 	// handle error
+	// 	fmt.Println("Error creating request:", err)
+	// 	return
+	// }
 
-	httpResp, err := r.client.HttpClient.Do(httpReq)
-	defer httpReq.Body.Close()
+	// httpResp, err := r.client.HttpClient.Do(httpReq)
+	// defer httpReq.Body.Close()
 
-	tflog.Debug(ctx, fmt.Sprintf("Received response %v", httpResp))
+	// tflog.Debug(ctx, fmt.Sprintf("Received response %v", httpResp))
 
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Create Resource",
-			"An unexpected error occurred while attempting to refresh resource state. "+
-				"Please retry the operation or report this issue to the provider developers.\n\n"+
-				"HTTP Error: "+err.Error(),
-		)
+	// if err != nil {
+	// 	resp.Diagnostics.AddError(
+	// 		"Unable to Create Resource",
+	// 		"An unexpected error occurred while attempting to refresh resource state. "+
+	// 			"Please retry the operation or report this issue to the provider developers.\n\n"+
+	// 			"HTTP Error: "+err.Error(),
+	// 	)
 
-		return
-	}
+	// 	return
+	// }
 
 	// Treat HTTP 404 Not Found status as a signal to recreate resource
 	// and return early
-	if httpResp.StatusCode == http.StatusNotFound {
-		resp.State.RemoveResource(ctx)
-		return
-	}
+	// if httpResp.StatusCode == http.StatusNotFound {
+	// 	resp.State.RemoveResource(ctx)
+	// 	return
+	// }
 
-	var readResp model.MovementResponse
-	err = json.NewDecoder(httpResp.Body).Decode(&readResp)
+	// var readResp model.MovementResponse
+	// err = json.NewDecoder(httpResp.Body).Decode(&readResp)
 
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Create Resource",
-			"An unexpected error occurred while parsing the resource read response. "+
-				"Please report this issue to the provider developers.\n\n"+
-				"JSON Error: "+err.Error(),
-		)
+	// if err != nil {
+	// 	resp.Diagnostics.AddError(
+	// 		"Unable to Create Resource",
+	// 		"An unexpected error occurred while parsing the resource read response. "+
+	// 			"Please report this issue to the provider developers.\n\n"+
+	// 			"JSON Error: "+err.Error(),
+	// 	)
 
-		return
-	}
+	// 	return
+	// }
 
+	data.Id = types.StringValue(data.Name.ValueString())
 	diags = resp.State.Set(ctx, &data)
 	resp.Diagnostics.Append(diags...)
 }
@@ -300,6 +307,7 @@ func (r *MovementResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
+	data.Id = types.StringValue(data.Name.ValueString())
 	diags = resp.State.Set(ctx, &data)
 	resp.Diagnostics.Append(diags...)
 }
@@ -318,7 +326,7 @@ func (r *MovementResource) Delete(ctx context.Context, req resource.DeleteReques
 	httpReq, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodDelete,
-		fmt.Sprintf("%s/v1/movement", r.client.Config.Address),
+		fmt.Sprintf("%s/v1/movement-plan", r.client.Config.Address),
 		io.NopCloser(strings.NewReader("")),
 	)
 
