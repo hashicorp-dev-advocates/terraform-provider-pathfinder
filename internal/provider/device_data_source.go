@@ -7,16 +7,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
 
 	"github.com/hashicorp-dev-advocates/terraform-provider-pathfinder/internal/clients"
 	"github.com/hashicorp-dev-advocates/terraform-provider-pathfinder/internal/clients/model"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -65,7 +62,7 @@ func (d *DeviceDataSource) Schema(ctx context.Context, req datasource.SchemaRequ
 				Computed:            true,
 			},
 			"features": schema.MapAttribute{
-				ElementType:         types.StringType,
+				ElementType:         types.BoolType,
 				Computed:            true,
 				MarkdownDescription: "Features of the device, including whether they're enabled or not.",
 			},
@@ -73,9 +70,8 @@ func (d *DeviceDataSource) Schema(ctx context.Context, req datasource.SchemaRequ
 				MarkdownDescription: "Uptime (in seconds).",
 				Computed:            true,
 			},
-		},
-		Blocks: map[string]schema.Block{
-			"identifiers": schema.SingleNestedBlock{
+			"identifiers": schema.SingleNestedAttribute{
+				Computed: true,
 				Attributes: map[string]schema.Attribute{
 					"long": schema.StringAttribute{
 						MarkdownDescription: "",
@@ -86,9 +82,10 @@ func (d *DeviceDataSource) Schema(ctx context.Context, req datasource.SchemaRequ
 						Computed:            true,
 					},
 				},
-				MarkdownDescription: "",
+				MarkdownDescription: "Identifiers of the device.",
 			},
-			"versions": schema.SingleNestedBlock{
+			"versions": schema.SingleNestedAttribute{
+				Computed: true,
 				Attributes: map[string]schema.Attribute{
 					"api": schema.StringAttribute{
 						MarkdownDescription: "Version of the API that's running.",
@@ -99,7 +96,7 @@ func (d *DeviceDataSource) Schema(ctx context.Context, req datasource.SchemaRequ
 						Computed:            true,
 					},
 				},
-				MarkdownDescription: "",
+				MarkdownDescription: "Versions of the software running on the device.",
 			},
 		},
 	}
@@ -131,53 +128,19 @@ func (d *DeviceDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		return
 	}
 
-	// Create HTTP request
-	httpReq, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodGet,
-		fmt.Sprintf("%s/v1/device/status", d.client.Config.Address),
-		io.NopCloser(strings.NewReader("")),
-	)
-
-	// Example of setting a custom header, such as an API key
-	// httpReq.Header.Set("x-api-key", d.client.Config.ApiKey)
-
-	ctx = tflog.SetField(ctx, "endpoint", httpReq.URL.String())
-	ctx = tflog.SetField(ctx, "method", httpReq.Method)
-	tflog.Debug(ctx, fmt.Sprintf("Sending %s request to: %s", httpReq.Method, httpReq.URL.String()))
-
-	if err != nil {
-		// handle error
-		fmt.Println("Error creating request:", err)
-		return
-	}
-
-	httpResp, err := d.client.HttpClient.Do(httpReq)
-	defer httpReq.Body.Close()
-
-	tflog.Debug(ctx, fmt.Sprintf("Received response %v", httpResp))
-
+	body, err := d.client.Do(ctx, http.MethodGet, "/v1/device/status", nil, clients.DefaultTimeout)
 	if err != nil {
 		resp.Diagnostics.AddError(
-			"Unable to Refresh Resource",
-			"An unexpected error occurred while attempting to refresh resource state. "+
-				"Please retry the operation or report this issue to the provider developers.\n\n"+
-				"HTTP Error: "+err.Error(),
+			"Unable to Read Data Source",
+			"An error occurred while requesting /v1/device/status from the device.\n\n"+
+				"Error: "+err.Error(),
 		)
 
 		return
 	}
 
-	// Treat HTTP 404 Not Found status as a signal to recreate resource
-	// and return early
-	if httpResp.StatusCode == http.StatusNotFound {
-		resp.State.RemoveResource(ctx)
-
-		return
-	}
-
-	var readResp model.DeviceResponse
-	err = json.NewDecoder(httpResp.Body).Decode(&readResp)
+	var devices []model.DeviceResponse
+	err = json.Unmarshal(body, &devices)
 
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -190,11 +153,28 @@ func (d *DeviceDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		return
 	}
 
+	if len(devices) == 0 {
+		resp.Diagnostics.AddError(
+			"Unable to Read Data Source",
+			"The device responded to /v1/device/status without any device information.",
+		)
+
+		return
+	}
+	readResp := devices[0]
+
+	features, diags := types.MapValueFrom(ctx, types.BoolType, readResp.Features)
+	resp.Diagnostics.Append(diags...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	data.Name = types.StringValue(readResp.Name)
 	data.Uptime = types.Float64Value(readResp.Uptime)
 	data.Identifiers = expandDeviceResponseIdentifiersModel(readResp.Identifiers)
 	data.Versions = expandDeviceResponseVersionsModel(readResp.Versions)
-	//TODO: data.Features = something
+	data.Features = features
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
