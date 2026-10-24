@@ -5,18 +5,14 @@ package provider
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
 
 	"github.com/hashicorp-dev-advocates/terraform-provider-pathfinder/internal/clients"
-	"github.com/hashicorp-dev-advocates/terraform-provider-pathfinder/internal/clients/model"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -80,66 +76,21 @@ func (d *HealthDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		return
 	}
 
-	// Create HTTP request
-	httpReq, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodGet,
-		fmt.Sprintf("%s/v1/healthz", d.client.Config.Address),
-		io.NopCloser(strings.NewReader("")),
-	)
+	// The device answers with plain text, so the status code is the result
+	_, err := d.client.Do(ctx, http.MethodGet, "/v1/healthz", nil, clients.DefaultTimeout)
 
-	// Example of setting a custom header, such as an API key
-	// httpReq.Header.Set("x-api-key", d.client.Config.ApiKey)
-
-	ctx = tflog.SetField(ctx, "endpoint", httpReq.URL.String())
-	ctx = tflog.SetField(ctx, "method", httpReq.Method)
-	tflog.Debug(ctx, fmt.Sprintf("Sending %s request to: %s", httpReq.Method, httpReq.URL.String()))
-
-	if err != nil {
-		// handle error
-		fmt.Println("Error creating request:", err)
-		return
-	}
-
-	httpResp, err := d.client.HttpClient.Do(httpReq)
-	defer httpReq.Body.Close()
-
-	tflog.Debug(ctx, fmt.Sprintf("Received response %v", httpResp))
-
-	if err != nil {
+	var statusErr *clients.StatusError
+	if err != nil && !errors.As(err, &statusErr) {
 		resp.Diagnostics.AddError(
-			"Unable to Refresh Resource",
-			"An unexpected error occurred while attempting to refresh resource state. "+
-				"Please retry the operation or report this issue to the provider developers.\n\n"+
-				"HTTP Error: "+err.Error(),
+			"Unable to Read Data Source",
+			"An error occurred while requesting /v1/healthz from the device.\n\n"+
+				"Error: "+err.Error(),
 		)
 
 		return
 	}
 
-	// Treat HTTP 404 Not Found status as a signal to recreate resource
-	// and return early
-	if httpResp.StatusCode == http.StatusNotFound {
-		resp.State.RemoveResource(ctx)
-
-		return
-	}
-
-	var readResp model.HealthzResponse
-	err = json.NewDecoder(httpResp.Body).Decode(&readResp)
-
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Refresh Resource",
-			"An unexpected error occurred while parsing the resource read response. "+
-				"Please report this issue to the provider developers.\n\n"+
-				"JSON Error: "+err.Error(),
-		)
-
-		return
-	}
-
-	data.Healthy = types.BoolValue(readResp.Healthy)
+	data.Healthy = types.BoolValue(err == nil)
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
