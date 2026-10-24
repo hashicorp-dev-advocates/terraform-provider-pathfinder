@@ -4,29 +4,35 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
+	"time"
 
 	"github.com/hashicorp-dev-advocates/terraform-provider-pathfinder/internal/clients"
 	"github.com/hashicorp-dev-advocates/terraform-provider-pathfinder/internal/clients/model"
 	"github.com/hashicorp/terraform-plugin-framework-validators/float64validator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
 var _ resource.Resource = &MovementResource{}
+
+// movementTimeout bounds a movement plan request. The device responds once it has run
+// every step, and 50 steps of the longest turn and distance take about 10 minutes.
+const movementTimeout = 15 * time.Minute
 
 func NewMovementResource() resource.Resource {
 	return &MovementResource{}
@@ -63,20 +69,33 @@ func (r *MovementResource) Schema(ctx context.Context, req resource.SchemaReques
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
+			// The device can only run a plan, so any change to it sends a new plan
 			"name": schema.StringAttribute{
 				MarkdownDescription: "Name of the movement plan to execute.",
 				Required:            true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"persist": schema.BoolAttribute{
 				MarkdownDescription: "Indicates if the movement plan should be persisted to the device.",
 				Optional:            true,
 				Computed:            true,
 				Default:             booldefault.StaticBool(true),
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.RequiresReplace(),
+				},
 			},
 		},
 		Blocks: map[string]schema.Block{
 			"steps": schema.ListNestedBlock{
+				PlanModifiers: []planmodifier.List{
+					listplanmodifier.RequiresReplace(),
+				},
 				Validators: []validator.List{
 					listvalidator.IsRequired(),
 					// At maximum, we can have 50 steps.
@@ -85,8 +104,11 @@ func (r *MovementResource) Schema(ctx context.Context, req resource.SchemaReques
 				NestedObject: schema.NestedBlockObject{
 					Attributes: map[string]schema.Attribute{
 						"angle": schema.Int64Attribute{
-							MarkdownDescription: "Angle to move the device in degrees.",
+							MarkdownDescription: "Angle to turn the device before moving, in degrees. `0` keeps the heading, up to `180` turns right, and above `180` turns left.",
 							Required:            true,
+							Validators: []validator.Int64{
+								int64validator.Between(0, 359),
+							},
 						},
 						"direction": schema.StringAttribute{
 							MarkdownDescription: "Direction to move the device in.",
@@ -153,76 +175,19 @@ func (r *MovementResource) Create(ctx context.Context, req resource.CreateReques
 		}
 	}
 
-	httpReqBody, err := json.Marshal(createReq)
+	// The device runs the whole plan before it responds, and rejects an invalid plan with HTTP 400
+	_, err := r.client.Do(ctx, http.MethodPost, "/v1/movement-plan", createReq, movementTimeout)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create Resource",
-			"An unexpected error occurred while marshalling the resource create request. "+
-				"Please report this issue to the provider developers.\n\n"+
-				"JSON Error: "+err.Error(),
-		)
-	}
-
-	// Create HTTP request
-	httpReq, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		fmt.Sprintf("%s/v1/movement-plan", r.client.Config.Address),
-		bytes.NewBuffer(httpReqBody),
-	)
-
-	// Example of setting a custom header, such as an API key
-	// httpReq.Header.Set("x-api-key", d.client.Config.ApiKey)
-
-	ctx = tflog.SetField(ctx, "endpoint", httpReq.URL.String())
-	ctx = tflog.SetField(ctx, "method", httpReq.Method)
-	tflog.Debug(ctx, fmt.Sprintf("Sending %s request to: %s with body: %s", httpReq.Method, httpReq.URL.String(), httpReqBody))
-
-	if err != nil {
-		// handle error
-		fmt.Println("Error creating request:", err)
-		return
-	}
-
-	httpResp, err := r.client.HttpClient.Do(httpReq)
-	defer httpReq.Body.Close()
-
-	tflog.Debug(ctx, fmt.Sprintf("Received response %v", httpResp))
-
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Refresh Resource",
-			"An unexpected error occurred while attempting to refresh resource state. "+
-				"Please retry the operation or report this issue to the provider developers.\n\n"+
-				"HTTP Error: "+err.Error(),
+			"An error occurred while sending the movement plan to the device.\n\n"+
+				"Error: "+err.Error(),
 		)
 
 		return
 	}
-
-	// Treat HTTP 404 Not Found status as a signal to recreate resource
-	// and return early
-	if httpResp.StatusCode == http.StatusNotFound {
-		resp.State.RemoveResource(ctx)
-		return
-	}
-
-	// var readResp model.MovementResponse
-	// err = json.NewDecoder(httpResp.Body).Decode(&readResp)
-
-	// if err != nil {
-	// 	resp.Diagnostics.AddError(
-	// 		"Unable to Refresh Resource",
-	// 		"An unexpected error occurred while parsing the resource read response. "+
-	// 			"Please report this issue to the provider developers.\n\n"+
-	// 			"JSON Error: "+err.Error(),
-	// 	)
-
-	// 	return
-	// }
 
 	// Save data into Terraform state
-
 	data.Id = types.StringValue(data.Name.ValueString())
 	resp.Diagnostics.Append(resp.State.Set(ctx, data)...)
 }
@@ -237,66 +202,13 @@ func (r *MovementResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	// Create an empty HTTP GET request
-	// httpReq, err := http.NewRequestWithContext(
-	// 	ctx,
-	// 	http.MethodGet,
-	// 	fmt.Sprintf("%s/v1/movement-plan", r.client.Config.Address),
-	// 	io.NopCloser(strings.NewReader("")),
-	// )
-
-	// ctx = tflog.SetField(ctx, "endpoint", httpReq.URL.String())
-	// ctx = tflog.SetField(ctx, "method", httpReq.Method)
-	// tflog.Debug(ctx, fmt.Sprintf("Sending %s request to: %s", httpReq.Method, httpReq.URL.String()))
-
-	// if err != nil {
-	// 	// handle error
-	// 	fmt.Println("Error creating request:", err)
-	// 	return
-	// }
-
-	// httpResp, err := r.client.HttpClient.Do(httpReq)
-	// defer httpReq.Body.Close()
-
-	// tflog.Debug(ctx, fmt.Sprintf("Received response %v", httpResp))
-
-	// if err != nil {
-	// 	resp.Diagnostics.AddError(
-	// 		"Unable to Create Resource",
-	// 		"An unexpected error occurred while attempting to refresh resource state. "+
-	// 			"Please retry the operation or report this issue to the provider developers.\n\n"+
-	// 			"HTTP Error: "+err.Error(),
-	// 	)
-
-	// 	return
-	// }
-
-	// Treat HTTP 404 Not Found status as a signal to recreate resource
-	// and return early
-	// if httpResp.StatusCode == http.StatusNotFound {
-	// 	resp.State.RemoveResource(ctx)
-	// 	return
-	// }
-
-	// var readResp model.MovementResponse
-	// err = json.NewDecoder(httpResp.Body).Decode(&readResp)
-
-	// if err != nil {
-	// 	resp.Diagnostics.AddError(
-	// 		"Unable to Create Resource",
-	// 		"An unexpected error occurred while parsing the resource read response. "+
-	// 			"Please report this issue to the provider developers.\n\n"+
-	// 			"JSON Error: "+err.Error(),
-	// 	)
-
-	// 	return
-	// }
-
+	// The device has no endpoint to read a plan back, so the state stays as it is
 	data.Id = types.StringValue(data.Name.ValueString())
 	diags = resp.State.Set(ctx, &data)
 	resp.Diagnostics.Append(diags...)
 }
 
+// Update is never called: every configurable attribute requires replacement.
 func (r *MovementResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var data MovementResourceModel
 
@@ -322,58 +234,19 @@ func (r *MovementResource) Delete(ctx context.Context, req resource.DeleteReques
 		return
 	}
 
-	// Set up an empty HTTP DELETE request
-	httpReq, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodDelete,
-		fmt.Sprintf("%s/v1/movement-plan", r.client.Config.Address),
-		io.NopCloser(strings.NewReader("")),
-	)
+	_, err := r.client.Do(ctx, http.MethodDelete, "/v1/movement-plan", nil, clients.DefaultTimeout)
 
-	ctx = tflog.SetField(ctx, "endpoint", httpReq.URL.String())
-	ctx = tflog.SetField(ctx, "method", httpReq.Method)
-	tflog.Debug(ctx, fmt.Sprintf("Sending %s request to: %s", httpReq.Method, httpReq.URL.String()))
-
-	if err != nil {
-		// handle error
-		fmt.Println("Error creating request:", err)
+	// The device has nothing to delete when it doesn't know the route
+	var statusErr *clients.StatusError
+	if errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound {
 		return
 	}
-
-	httpResp, err := r.client.HttpClient.Do(httpReq)
-	defer httpReq.Body.Close()
-
-	tflog.Debug(ctx, fmt.Sprintf("Received response %v", httpResp))
 
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Delete Resource",
-			"An unexpected error occurred while attempting to refresh resource state. "+
-				"Please retry the operation or report this issue to the provider developers.\n\n"+
-				"HTTP Error: "+err.Error(),
+			"An error occurred while deleting the movement plan from the device.\n\n"+
+				"Error: "+err.Error(),
 		)
-
-		return
-	}
-
-	// Treat HTTP 404 Not Found status as a signal to recreate resource
-	// and return early
-	if httpResp.StatusCode == http.StatusNotFound {
-		resp.State.RemoveResource(ctx)
-		return
-	}
-
-	var readResp model.MovementResponse
-	err = json.NewDecoder(httpResp.Body).Decode(&readResp)
-
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Delete Resource",
-			"An unexpected error occurred while parsing the resource read response. "+
-				"Please report this issue to the provider developers.\n\n"+
-				"JSON Error: "+err.Error(),
-		)
-
-		return
 	}
 }

@@ -56,6 +56,6 @@ resource "pathfinder_movement" "example" {
 
 Required:
 
-- `angle` (Number) Angle to move the device in degrees.
+- `angle` (Number) Angle to turn the device before moving, in degrees. `0` keeps the heading, up to `180` turns right, and above `180` turns left.
 - `direction` (String) Direction to move the device in.
 - `distance` (Number) Distance to move the device in meters.
