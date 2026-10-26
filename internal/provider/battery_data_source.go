@@ -7,16 +7,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
 
 	"github.com/hashicorp-dev-advocates/terraform-provider-pathfinder/internal/clients"
 	"github.com/hashicorp-dev-advocates/terraform-provider-pathfinder/internal/clients/model"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -33,8 +30,8 @@ type BatteryDataSource struct {
 
 // BatteryDataSourceModel describes the data source data model.
 type BatteryDataSourceModel struct {
-	Value types.Int64  `tfsdk:"value"`
-	Unit  types.String `tfsdk:"unit"`
+	Value types.Float64 `tfsdk:"value"`
+	Unit  types.String  `tfsdk:"unit"`
 }
 
 func (d *BatteryDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -47,12 +44,12 @@ func (d *BatteryDataSource) Schema(ctx context.Context, req datasource.SchemaReq
 		MarkdownDescription: "Get information about the on-board battery.",
 
 		Attributes: map[string]schema.Attribute{
-			"value": schema.Int64Attribute{
-				MarkdownDescription: "Current battery value.",
+			"value": schema.Float64Attribute{
+				MarkdownDescription: "Current battery voltage.",
 				Computed:            true,
 			},
 			"unit": schema.StringAttribute{
-				MarkdownDescription: "Unit of the battery value.",
+				MarkdownDescription: "Unit of the battery voltage.",
 				Computed:            true,
 			},
 		},
@@ -85,53 +82,19 @@ func (d *BatteryDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		return
 	}
 
-	// Create HTTP request
-	httpReq, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodGet,
-		fmt.Sprintf("%s/v1/device/battery", d.client.Config.Address),
-		io.NopCloser(strings.NewReader("")),
-	)
-
-	// Example of setting a custom header, such as an API key
-	// httpReq.Header.Set("x-api-key", d.client.Config.ApiKey)
-
-	ctx = tflog.SetField(ctx, "endpoint", httpReq.URL.String())
-	ctx = tflog.SetField(ctx, "method", httpReq.Method)
-	tflog.Debug(ctx, fmt.Sprintf("Sending %s request to: %s", httpReq.Method, httpReq.URL.String()))
-
-	if err != nil {
-		// handle error
-		fmt.Println("Error creating request:", err)
-		return
-	}
-
-	httpResp, err := d.client.HttpClient.Do(httpReq)
-	defer httpReq.Body.Close()
-
-	tflog.Debug(ctx, fmt.Sprintf("Received response %v", httpResp))
-
+	body, err := d.client.Do(ctx, http.MethodGet, "/v1/device/battery", nil, clients.DefaultTimeout)
 	if err != nil {
 		resp.Diagnostics.AddError(
-			"Unable to Refresh Resource",
-			"An unexpected error occurred while attempting to refresh resource state. "+
-				"Please retry the operation or report this issue to the provider developers.\n\n"+
-				"HTTP Error: "+err.Error(),
+			"Unable to Read Data Source",
+			"An error occurred while requesting /v1/device/battery from the device.\n\n"+
+				"Error: "+err.Error(),
 		)
 
 		return
 	}
 
-	// Treat HTTP 404 Not Found status as a signal to recreate resource
-	// and return early
-	if httpResp.StatusCode == http.StatusNotFound {
-		resp.State.RemoveResource(ctx)
-
-		return
-	}
-
 	var readResp model.BatteryResponse
-	err = json.NewDecoder(httpResp.Body).Decode(&readResp)
+	err = json.Unmarshal(body, &readResp)
 
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -144,8 +107,8 @@ func (d *BatteryDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		return
 	}
 
-	data.Unit = types.StringValue(readResp.Unit)
-	data.Value = types.Int64Value(readResp.Value)
+	data.Unit = types.StringValue(readResp.LoadVoltage.Unit)
+	data.Value = types.Float64Value(readResp.LoadVoltage.Value)
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)

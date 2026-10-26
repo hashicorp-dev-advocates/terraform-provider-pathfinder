@@ -21,13 +21,13 @@ data "pathfinder_device" "example" {}
 
 ### Read-Only
 
-- `features` (Map of String) Features of the device, including whether they're enabled or not.
-- `identifiers` (Block, Read-only) (see [below for nested schema](#nestedblock--identifiers))
+- `features` (Map of Boolean) Features of the device, including whether they're enabled or not.
+- `identifiers` (Attributes) Identifiers of the device. (see [below for nested schema](#nestedatt--identifiers))
 - `name` (String) Name of the device.
 - `uptime` (Number) Uptime (in seconds).
-- `versions` (Block, Read-only) (see [below for nested schema](#nestedblock--versions))
+- `versions` (Attributes) Versions of the software running on the device. (see [below for nested schema](#nestedatt--versions))
 
-<a id="nestedblock--identifiers"></a>
+<a id="nestedatt--identifiers"></a>
 ### Nested Schema for `identifiers`
 
 Read-Only:
@@ -36,7 +36,7 @@ Read-Only:
 - `short` (String)
 
 
-<a id="nestedblock--versions"></a>
+<a id="nestedatt--versions"></a>
 ### Nested Schema for `versions`
 
 Read-Only:

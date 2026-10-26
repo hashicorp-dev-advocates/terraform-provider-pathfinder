@@ -7,16 +7,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
 
 	"github.com/hashicorp-dev-advocates/terraform-provider-pathfinder/internal/clients"
 	"github.com/hashicorp-dev-advocates/terraform-provider-pathfinder/internal/clients/model"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -102,53 +99,19 @@ func (d *WifiNetworksDataSource) Read(ctx context.Context, req datasource.ReadRe
 		return
 	}
 
-	// Create HTTP request
-	httpReq, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodGet,
-		fmt.Sprintf("%s/v1/device/wifi", d.client.Config.Address),
-		io.NopCloser(strings.NewReader("")),
-	)
-
-	// Example of setting a custom header, such as an API key
-	// httpReq.Header.Set("x-api-key", d.client.Config.ApiKey)
-
-	ctx = tflog.SetField(ctx, "endpoint", httpReq.URL.String())
-	ctx = tflog.SetField(ctx, "method", httpReq.Method)
-	tflog.Debug(ctx, fmt.Sprintf("Sending %s request to: %s", httpReq.Method, httpReq.URL.String()))
-
-	if err != nil {
-		// handle error
-		fmt.Println("Error creating request:", err)
-		return
-	}
-
-	httpResp, err := d.client.HttpClient.Do(httpReq)
-	defer httpReq.Body.Close()
-
-	tflog.Debug(ctx, fmt.Sprintf("Received response %v", httpResp))
-
+	body, err := d.client.Do(ctx, http.MethodGet, "/v1/device/wifi", nil, clients.DefaultTimeout)
 	if err != nil {
 		resp.Diagnostics.AddError(
-			"Unable to Refresh Resource",
-			"An unexpected error occurred while attempting to refresh resource state. "+
-				"Please retry the operation or report this issue to the provider developers.\n\n"+
-				"HTTP Error: "+err.Error(),
+			"Unable to Read Data Source",
+			"An error occurred while requesting /v1/device/wifi from the device.\n\n"+
+				"Error: "+err.Error(),
 		)
 
 		return
 	}
 
-	// Treat HTTP 404 Not Found status as a signal to recreate resource
-	// and return early
-	if httpResp.StatusCode == http.StatusNotFound {
-		resp.State.RemoveResource(ctx)
-
-		return
-	}
-
 	var readResp []model.WifiNetworkItem
-	err = json.NewDecoder(httpResp.Body).Decode(&readResp)
+	err = json.Unmarshal(body, &readResp)
 
 	if err != nil {
 		resp.Diagnostics.AddError(

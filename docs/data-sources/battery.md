@@ -21,5 +21,5 @@ data "pathfinder_battery" "example" {}
 
 ### Read-Only
 
-- `unit` (String) Unit of the battery value.
-- `value` (Number) Current battery value.
+- `unit` (String) Unit of the battery voltage.
+- `value` (Number) Current battery voltage.

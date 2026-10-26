@@ -6,10 +6,12 @@ package provider
 import (
 	"context"
 	"fmt"
+	"net/url"
 
 	"github.com/hashicorp-dev-advocates/terraform-provider-pathfinder/internal/clients"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/function"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -48,12 +50,13 @@ func (p *PathfinderProvider) Schema(ctx context.Context, req provider.SchemaRequ
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"address": schema.StringAttribute{
-				MarkdownDescription: "Address of the Pathfinder API.",
+				MarkdownDescription: "Address of the Pathfinder API, including the scheme, such as `http://192.168.4.1`.",
 				Required:            true,
 			},
 			"api_key": schema.StringAttribute{
 				MarkdownDescription: "API key used to authenticate to the Pathfinder API.",
 				Optional:            true,
+				Sensitive:           true,
 			},
 		},
 	}
@@ -69,17 +72,40 @@ func (p *PathfinderProvider) Configure(ctx context.Context, req provider.Configu
 		return // Exit early if there are any configuration errors
 	}
 
+	// The address may only be known after apply, for example when it comes from another resource
+	if providerConfig.Address.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("address"),
+			"Unknown Pathfinder API Address",
+			"The provider can't create a Pathfinder API client because the address isn't known yet. "+
+				"Set it to a value that's known during plan.",
+		)
+
+		return
+	}
+
+	address, err := url.Parse(providerConfig.Address.ValueString())
+	if err != nil || (address.Scheme != "http" && address.Scheme != "https") || address.Host == "" {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("address"),
+			"Invalid Pathfinder API Address",
+			fmt.Sprintf("The address must be an http:// or https:// URL with a host, such as http://192.168.4.1, got: %q.", providerConfig.Address.ValueString()),
+		)
+
+		return
+	}
+
 	// Prepare client configuration
 	cfg := clients.ClientConfig{
 		Address: providerConfig.Address.ValueString(),
 		ApiKey:  providerConfig.ApiKey.ValueString(),
 	}
 
-	tflog.Debug(ctx, fmt.Sprintf("Configuring Pathfinder provider using configuration: %v", cfg))
-
 	ctx = tflog.SetField(ctx, "address", cfg.Address)
 	ctx = tflog.SetField(ctx, "api_key", providerConfig.ApiKey.ValueString())
 	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "api_key")
+
+	tflog.Debug(ctx, "Configuring Pathfinder provider")
 
 	tflog.Debug(ctx, "Initializing Pathfinder API client")
 

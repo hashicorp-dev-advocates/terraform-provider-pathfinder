@@ -7,8 +7,21 @@ build:
 install: build
 	go install -v ./...
 
+# Lint Go code (see `.golangci.yml`)
 lint:
-	@echo "not running golangci-lint run"
+	golangci-lint run ./...
+
+vet:
+	go vet ./...
+
+# Check dependencies for known vulnerabilities
+vuln:
+	govulncheck ./...
+
+# Update Go modules, e.g. `make update MODULES=golang.org/x/net@latest`
+update:
+	go get $(MODULES)
+	go mod tidy
 
 # Generate docs and copywrite headers
 generate:
@@ -39,4 +52,4 @@ tests-lint-fix:
 	@find ./internal/provider -name "*_test.go" -exec sed -i ':a;N;$$!ba;s/fmt.Sprintf(`\n/fmt.Sprintf(`/g' '{}' \; # remove newlines for terrafmt
 	@terrafmt fmt -f ./internal/provider --pattern '*_test.go'
 
-.PHONY: build install lint generate fmt test testacc tests-lint tests-lint-fix copyright
+.PHONY: build install lint vet vuln update generate fmt test testacc tests-lint tests-lint-fix copyright

@@ -1,5 +1,5 @@
 data "pathfinder_health" "example" {}
 
-output "ready" {
-  value = data.pathfinder_ready.example.ready
+output "healthy" {
+  value = data.pathfinder_health.example.healthy
 }
