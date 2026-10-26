@@ -9,6 +9,7 @@ import (
 	"net/url"
 
 	"github.com/hashicorp-dev-advocates/terraform-provider-pathfinder/internal/clients"
+	"github.com/hashicorp/terraform-plugin-framework/action"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/function"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -22,6 +23,7 @@ import (
 // Ensure PathfinderProvider satisfies various provider interfaces.
 var _ provider.Provider = &PathfinderProvider{}
 var _ provider.ProviderWithFunctions = &PathfinderProvider{}
+var _ provider.ProviderWithActions = &PathfinderProvider{}
 
 type ProviderFrameworkConfiguration struct {
 	Client *clients.Client
@@ -118,14 +120,22 @@ func (p *PathfinderProvider) Configure(ctx context.Context, req provider.Configu
 
 	tflog.Debug(ctx, "Successfully initialized Pathfinder API client")
 
-	// Set the API client to be used by resources and data sources
+	// Set the API client to be used by resources, data sources and actions
 	resp.DataSourceData = client
 	resp.ResourceData = client
+	resp.ActionData = client
 }
 
 func (p *PathfinderProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewMovementResource,
+		NewMovementPlanResource,
+	}
+}
+
+func (p *PathfinderProvider) Actions(ctx context.Context) []func() action.Action {
+	return []func() action.Action{
+		NewRunMovementAction,
 	}
 }
 

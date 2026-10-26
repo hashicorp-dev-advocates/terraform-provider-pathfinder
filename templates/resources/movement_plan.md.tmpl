@@ -1,0 +1,27 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
+subcategory: ""
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+{{ .Description | trimspace }}
+
+## Example Usage
+
+### URL Usage
+{{ tffile "examples/resources/movement_plan/resource.tf" }}
+
+### Running the plan
+
+The `pathfinder_run_movement` action runs the plan that is stored on the device, and returns once the device has finished moving. It requires Terraform 1.14 or later.
+
+The `action_trigger` in the example runs the plan after the resource is created. To run the stored plan again, without changing the resource, use:
+
+```shell
+terraform apply -invoke=action.pathfinder_run_movement.example
+```
+
+{{ .SchemaMarkdown | trimspace }}
