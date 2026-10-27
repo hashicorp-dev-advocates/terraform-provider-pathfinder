@@ -11,7 +11,6 @@ description: |-
 
 ## Example Usage
 
-### URL Usage
 {{ tffile "examples/resources/movement_plan/resource.tf" }}
 
 ### Running the plan
@@ -23,5 +22,9 @@ The `action_trigger` in the example runs the plan after the resource is created.
 ```shell
 terraform apply -invoke=action.pathfinder_run_movement.example
 ```
+
+### Device restarts
+
+The device keeps the plan in memory only. After a restart, the next plan finds the plan missing and creates the resource again, which also fires the `after_create` trigger: the device moves through the plan again on that apply. If the device must not move after a restart, leave out the `action_trigger` and invoke the action by hand instead.
 
 {{ .SchemaMarkdown | trimspace }}

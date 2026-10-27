@@ -42,17 +42,18 @@ jobs:
         with:
           go-version-file: 'go.mod'
           cache: true
-      # Temporarily download Terraform 1.8 prerelease for function documentation support.
-      # When Terraform 1.8.0 final is released, this can be removed.
+      # Exporting action schemas for the documentation needs Terraform 1.14 or later
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
-          terraform_version: '1.8.0-alpha20240216'
+          terraform_version: '1.17.*'
           terraform_wrapper: false
-      - run: go generate ./...
+      # The generators live in the separate tools module, which `go generate ./...` in the root doesn't reach
+      - run: make generate
       - name: git diff
         run: |
-          git diff --compact-summary --exit-code || \
-            (echo; echo "Unexpected difference in directories after code generation. Run 'go generate ./...' command and commit."; exit 1)
+          git status --porcelain
+          test -z "$(git status --porcelain)" || \
+            (echo; echo "Unexpected difference in directories after code generation. Run 'make generate' command and commit."; exit 1)
 
   # Run acceptance tests in a matrix with Terraform CLI versions
   test:

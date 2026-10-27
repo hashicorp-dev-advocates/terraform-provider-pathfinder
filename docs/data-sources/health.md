@@ -11,7 +11,6 @@ Get information about the health of the service and device.
 
 ## Example Usage
 
-### URL Usage
 ```terraform
 data "pathfinder_health" "example" {}
 

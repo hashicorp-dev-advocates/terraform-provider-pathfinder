@@ -11,7 +11,6 @@ Get information about the available WiFi networks.
 
 ## Example Usage
 
-### URL Usage
 ```terraform
 data "pathfinder_wifi_networks" "example" {}
 

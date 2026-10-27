@@ -11,7 +11,6 @@ Get information about the device.
 
 ## Example Usage
 
-### URL Usage
 ```terraform
 data "pathfinder_device" "example" {}
 ```
