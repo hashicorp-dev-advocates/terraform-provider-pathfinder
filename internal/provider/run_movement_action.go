@@ -5,6 +5,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -35,7 +36,8 @@ func (a *RunMovementAction) Schema(ctx context.Context, req action.SchemaRequest
 	resp.Schema = schema.Schema{
 		// This description is used by the documentation generator and the language server.
 		MarkdownDescription: "Runs the movement plan that is stored on the device, such as one uploaded by " +
-			"`pathfinder_movement_plan`. The device moves while the action runs.",
+			"`pathfinder_movement_plan`. The device moves while the action runs. " +
+			"The action fails when the device has no plan, for example after a restart.",
 	}
 }
 
@@ -56,6 +58,34 @@ func (a *RunMovementAction) Configure(ctx context.Context, req action.ConfigureR
 }
 
 func (a *RunMovementAction) Invoke(ctx context.Context, req action.InvokeRequest, resp *action.InvokeResponse) {
+	// The device answers a run without a plan with HTTP 200 as well, without moving
+	steps, err := readMovementPlan(ctx, a.client)
+
+	var statusErr *clients.StatusError
+	if errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound {
+		err = fmt.Errorf("%w: %w", errMovementPlanUnsupported, err)
+	}
+
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Run Movement Plan",
+			"An error occurred while reading the movement plan from the device.\n\n"+
+				"Error: "+err.Error(),
+		)
+
+		return
+	}
+
+	if len(steps) == 0 {
+		resp.Diagnostics.AddError(
+			"No Movement Plan on the Device",
+			"The device has no movement plan to run. Upload one with pathfinder_movement_plan first. "+
+				"The device keeps its plan in memory, so it loses the plan when it restarts.",
+		)
+
+		return
+	}
+
 	resp.SendProgress(action.InvokeProgressEvent{
 		Message: "Running the movement plan on the device. This returns once the device has finished moving.",
 	})

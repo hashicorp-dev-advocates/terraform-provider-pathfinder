@@ -39,6 +39,10 @@ type planDevice struct {
 	acceptWith string
 	// unsupported makes every /v2 route answer HTTP 404, like firmware built without API_V2.
 	unsupported bool
+	// dropPlanAfterReads drops the stored plan after this many reads of GET /v2/movement,
+	// like a restart between the upload and the run. Zero keeps the plan.
+	dropPlanAfterReads int
+	reads              int
 	// runStatus is the status of POST /v2/movement/run, HTTP 200 when zero.
 	runStatus int
 }
@@ -87,13 +91,20 @@ func (d *planDevice) serve(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, "movement plan executed.")
 	case "GET /v2/movement":
+		steps := d.steps
+
+		d.reads++
+		if d.reads == d.dropPlanAfterReads {
+			d.steps = nil
+		}
+
 		// The firmware serialises an empty plan as JSON null.
-		if len(d.steps) == 0 || string(d.steps) == "[]" {
+		if len(steps) == 0 || string(steps) == "[]" {
 			_, _ = io.WriteString(w, "null")
 			return
 		}
 
-		_, _ = w.Write(d.steps)
+		_, _ = w.Write(steps)
 	case "POST /v2/movement/run":
 		d.runs++
 
@@ -416,4 +427,26 @@ func TestRunMovementActionFailed(t *testing.T) {
 			},
 		},
 	})
+}
+
+// A device that lost its plan before the run fails the action instead of standing still.
+func TestRunMovementActionNoPlan(t *testing.T) {
+	device := newPlanDevice(t)
+	// Create reads the plan back once, then the device restarts
+	device.dropPlanAfterReads = 1
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		TerraformVersionChecks:   actionVersionChecks,
+		Steps: []resource.TestStep{
+			{
+				Config:      runMovementConfig(device.URL),
+				ExpectError: regexp.MustCompile(`The device has no movement plan to run`),
+			},
+		},
+	})
+
+	if runs := device.runCount(); runs != 0 {
+		t.Fatalf("expected no runs, got %d", runs)
+	}
 }
