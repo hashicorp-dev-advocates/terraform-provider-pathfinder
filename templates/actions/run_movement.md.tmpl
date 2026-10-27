@@ -1,0 +1,26 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
+subcategory: ""
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+{{ .Description | trimspace }}
+
+Actions require Terraform 1.14 or later. The action returns once the device has finished moving, or fails after 5 minutes.
+
+## Example Usage
+
+{{ tffile "examples/actions/run_movement/action.tf" }}
+
+To run the action without changing any resource, use:
+
+```shell
+terraform apply -invoke=action.pathfinder_run_movement.example
+```
+
+To run it after a `pathfinder_movement_plan` is created, see the example in the [`pathfinder_movement_plan` documentation](../resources/movement_plan.md).
+
+{{ .SchemaMarkdown | trimspace }}

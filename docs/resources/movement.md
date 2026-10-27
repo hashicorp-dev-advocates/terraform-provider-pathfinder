@@ -11,7 +11,6 @@ Instructs the device to move in a specific direction.
 
 ## Example Usage
 
-### URL Usage
 ```terraform
 resource "pathfinder_movement" "example" {
   name = "example"
@@ -58,4 +57,4 @@ Required:
 
 - `angle` (Number) Angle to turn the device before moving, in degrees. `0` keeps the heading, up to `180` turns right, and above `180` turns left.
 - `direction` (String) Direction to move the device in.
-- `distance` (Number) Distance to move the device in meters.
+- `distance` (Number) Distance to move the device, as a whole number. It has no fixed unit: the device drives its motors with PWM, so the distance covered depends on the device and the surface.

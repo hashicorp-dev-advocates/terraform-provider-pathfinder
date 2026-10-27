@@ -11,7 +11,6 @@ Get information about a possible movement lock.
 
 ## Example Usage
 
-### URL Usage
 ```terraform
 data "pathfinder_movement_lock" "" {}
 ```

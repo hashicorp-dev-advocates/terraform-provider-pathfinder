@@ -11,7 +11,6 @@ Get information about whether the device and service are ready to use.
 
 ## Example Usage
 
-### URL Usage
 ```terraform
 data "pathfinder_ready" "example" {}
 

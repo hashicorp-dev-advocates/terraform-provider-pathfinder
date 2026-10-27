@@ -11,7 +11,6 @@ Get information about the on-board battery.
 
 ## Example Usage
 
-### URL Usage
 ```terraform
 data "pathfinder_battery" "example" {}
 ```
