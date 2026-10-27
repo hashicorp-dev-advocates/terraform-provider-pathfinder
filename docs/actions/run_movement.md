@@ -2,12 +2,12 @@
 page_title: "pathfinder_run_movement Action - terraform-provider-pathfinder"
 subcategory: ""
 description: |-
-  Runs the movement plan that is stored on the device, such as one uploaded by pathfinder_movement_plan. The device moves while the action runs.
+  Runs the movement plan that is stored on the device, such as one uploaded by pathfinder_movement_plan. The device moves while the action runs. The action fails when the device has no plan, for example after a restart.
 ---
 
 # pathfinder_run_movement (Action)
 
-Runs the movement plan that is stored on the device, such as one uploaded by `pathfinder_movement_plan`. The device moves while the action runs.
+Runs the movement plan that is stored on the device, such as one uploaded by `pathfinder_movement_plan`. The device moves while the action runs. The action fails when the device has no plan, for example after a restart.
 
 Actions require Terraform 1.14 or later. The action returns once the device has finished moving, or fails after 5 minutes.
 

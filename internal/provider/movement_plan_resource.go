@@ -159,7 +159,7 @@ func (r *MovementPlanResource) uploadPlan(ctx context.Context, name string, step
 
 	// The device answers HTTP 200 to a plan it refuses as well, with the reason as the body,
 	// so the plan it stores is the only reliable answer
-	stored, err := r.readPlan(ctx)
+	stored, err := readMovementPlan(ctx, r.client)
 	if err != nil {
 		return err
 	}
@@ -171,9 +171,9 @@ func (r *MovementPlanResource) uploadPlan(ctx context.Context, name string, step
 	return nil
 }
 
-// readPlan returns the plan that is stored on the device, which is empty when there is none.
-func (r *MovementPlanResource) readPlan(ctx context.Context) ([]model.MovementStepItem, error) {
-	body, err := r.client.Do(ctx, http.MethodGet, "/v2/movement", nil, clients.DefaultTimeout)
+// readMovementPlan returns the plan that is stored on the device, which is empty when there is none.
+func readMovementPlan(ctx context.Context, client *clients.Client) ([]model.MovementStepItem, error) {
+	body, err := client.Do(ctx, http.MethodGet, "/v2/movement", nil, clients.DefaultTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +230,7 @@ func (r *MovementPlanResource) Read(ctx context.Context, req resource.ReadReques
 		return
 	}
 
-	deviceSteps, err := r.readPlan(ctx)
+	deviceSteps, err := readMovementPlan(ctx, r.client)
 
 	// The device has no plan when it doesn't know the route, so Create explains the missing support
 	var statusErr *clients.StatusError
