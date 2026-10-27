@@ -12,7 +12,6 @@ import (
 
 	"github.com/hashicorp-dev-advocates/terraform-provider-pathfinder/internal/clients"
 	"github.com/hashicorp-dev-advocates/terraform-provider-pathfinder/internal/clients/model"
-	"github.com/hashicorp/terraform-plugin-framework-validators/float64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -29,6 +28,7 @@ import (
 
 // Ensure provider defined types fully satisfy framework interfaces.
 var _ resource.Resource = &MovementResource{}
+var _ resource.ResourceWithUpgradeState = &MovementResource{}
 
 // movementTimeout bounds a movement plan request. The device responds once it has run
 // every step, and 50 steps of the longest turn and distance take about 10 minutes.
@@ -52,6 +52,21 @@ type MovementResourceModel struct {
 }
 
 type MovementStepsModel struct {
+	Angle     types.Int64  `tfsdk:"angle"`
+	Direction types.String `tfsdk:"direction"`
+	Distance  types.Int64  `tfsdk:"distance"`
+}
+
+// MovementResourceModelV0 describes the data model of schema version 0, which stored the
+// distance as a decimal number.
+type MovementResourceModelV0 struct {
+	Id      types.String           `tfsdk:"id"`
+	Name    types.String           `tfsdk:"name"`
+	Persist types.Bool             `tfsdk:"persist"`
+	Steps   []MovementStepsModelV0 `tfsdk:"steps"`
+}
+
+type MovementStepsModelV0 struct {
 	Angle     types.Int64   `tfsdk:"angle"`
 	Direction types.String  `tfsdk:"direction"`
 	Distance  types.Float64 `tfsdk:"distance"`
@@ -63,6 +78,9 @@ func (r *MovementResource) Metadata(ctx context.Context, req resource.MetadataRe
 
 func (r *MovementResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		// Version 1 stores the distance as a whole number
+		Version: 1,
+
 		// This description is used by the documentation generator and the language server.
 		MarkdownDescription: "Instructs the device to move in a specific direction.",
 
@@ -92,42 +110,93 @@ func (r *MovementResource) Schema(ctx context.Context, req resource.SchemaReques
 			},
 		},
 		Blocks: map[string]schema.Block{
-			"steps": schema.ListNestedBlock{
-				PlanModifiers: []planmodifier.List{
-					listplanmodifier.RequiresReplace(),
+			// The device reads the distance as a whole number
+			"steps": movementStepsBlock(schema.Int64Attribute{
+				MarkdownDescription: "Distance to move the device, as a whole number. It has no fixed unit: the device drives its motors with PWM, so the distance covered depends on the device and the surface.",
+				Required:            true,
+				Validators: []validator.Int64{
+					int64validator.Between(1, 100),
 				},
-				Validators: []validator.List{
-					listvalidator.IsRequired(),
-					// At maximum, we can have 50 steps.
-					listvalidator.SizeAtMost(50),
-				},
-				NestedObject: schema.NestedBlockObject{
-					Attributes: map[string]schema.Attribute{
-						"angle": schema.Int64Attribute{
-							MarkdownDescription: "Angle to turn the device before moving, in degrees. `0` keeps the heading, up to `180` turns right, and above `180` turns left.",
-							Required:            true,
-							Validators: []validator.Int64{
-								int64validator.Between(0, 359),
-							},
-						},
-						"direction": schema.StringAttribute{
-							MarkdownDescription: "Direction to move the device in.",
-							Required:            true,
-							Validators: []validator.String{
-								stringvalidator.Any(
-									stringvalidator.OneOf("forward", "backward"),
-								),
-							},
-						},
-						"distance": schema.Float64Attribute{
-							MarkdownDescription: "Distance to move the device in meters.",
-							Required:            true,
-							Validators: []validator.Float64{
-								float64validator.Between(1.0, 100),
-							},
-						},
+			}),
+		},
+	}
+}
+
+// movementStepsBlock returns the steps block with the distance attribute of a schema version.
+func movementStepsBlock(distance schema.Attribute) schema.ListNestedBlock {
+	return schema.ListNestedBlock{
+		PlanModifiers: []planmodifier.List{
+			listplanmodifier.RequiresReplace(),
+		},
+		Validators: []validator.List{
+			listvalidator.IsRequired(),
+			// At maximum, we can have 50 steps.
+			listvalidator.SizeAtMost(50),
+		},
+		NestedObject: schema.NestedBlockObject{
+			Attributes: map[string]schema.Attribute{
+				"angle": schema.Int64Attribute{
+					MarkdownDescription: "Angle to turn the device before moving, in degrees. `0` keeps the heading, up to `180` turns right, and above `180` turns left.",
+					Required:            true,
+					Validators: []validator.Int64{
+						int64validator.Between(0, 359),
 					},
 				},
+				"direction": schema.StringAttribute{
+					MarkdownDescription: "Direction to move the device in.",
+					Required:            true,
+					Validators: []validator.String{
+						stringvalidator.Any(
+							stringvalidator.OneOf("forward", "backward"),
+						),
+					},
+				},
+				"distance": distance,
+			},
+		},
+	}
+}
+
+func (r *MovementResource) UpgradeState(ctx context.Context) map[int64]resource.StateUpgrader {
+	// Version 0 is the current schema with a decimal distance
+	var current resource.SchemaResponse
+	r.Schema(ctx, resource.SchemaRequest{}, &current)
+
+	priorSchema := current.Schema
+	priorSchema.Version = 0
+	priorSchema.Blocks = map[string]schema.Block{
+		"steps": movementStepsBlock(schema.Float64Attribute{Required: true}),
+	}
+
+	return map[int64]resource.StateUpgrader{
+		0: {
+			PriorSchema: &priorSchema,
+			StateUpgrader: func(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
+				var prior MovementResourceModelV0
+
+				resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
+
+				if resp.Diagnostics.HasError() {
+					return
+				}
+
+				data := MovementResourceModel{
+					Id:      prior.Id,
+					Name:    prior.Name,
+					Persist: prior.Persist,
+					Steps:   make([]MovementStepsModel, len(prior.Steps)),
+				}
+
+				// The device drops the fraction of a decimal distance, so the state does the same
+				for i, step := range prior.Steps {
+					data.Steps[i] = MovementStepsModel{
+						Angle:     step.Angle,
+						Direction: step.Direction,
+						Distance:  types.Int64Value(int64(step.Distance.ValueFloat64())),
+					}
+				}
+
+				resp.Diagnostics.Append(resp.State.Set(ctx, data)...)
 			},
 		},
 	}
@@ -171,7 +240,7 @@ func (r *MovementResource) Create(ctx context.Context, req resource.CreateReques
 		createReq.Steps[i] = model.MovementStepItem{
 			Angle:     step.Angle.ValueInt64(),
 			Direction: step.Direction.ValueString(),
-			Distance:  step.Distance.ValueFloat64(),
+			Distance:  float64(step.Distance.ValueInt64()),
 		}
 	}
 

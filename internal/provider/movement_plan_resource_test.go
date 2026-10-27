@@ -17,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
+	"github.com/hashicorp/terraform-plugin-testing/tfversion"
 )
 
 // planDevice is a fake device that keeps the single movement plan of the /v2 API in memory,
@@ -31,8 +32,13 @@ type planDevice struct {
 	runs    int
 
 	// rejectWith makes POST /v2/movement answer HTTP 200 with this body instead of storing
-	// the plan, because the firmware reports a schema error that way.
+	// the plan, because the firmware reports a schema error that way. The firmware clears
+	// the stored plan before it checks the new one.
 	rejectWith string
+	// acceptWith is the body of the answer to an accepted plan, the firmware's when empty.
+	acceptWith string
+	// unsupported makes every /v2 route answer HTTP 404, like firmware built without API_V2.
+	unsupported bool
 	// runStatus is the status of POST /v2/movement/run, HTTP 200 when zero.
 	runStatus int
 }
@@ -53,11 +59,17 @@ func (d *planDevice) serve(w http.ResponseWriter, r *http.Request) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	switch r.Method + " " + r.URL.Path {
+	route := r.Method + " " + r.URL.Path
+	if d.unsupported {
+		route = "unsupported"
+	}
+
+	switch route {
 	case "POST /v2/movement":
 		d.uploads = append(d.uploads, string(body))
 
 		if d.rejectWith != "" {
+			d.steps = nil
 			_, _ = io.WriteString(w, d.rejectWith)
 			return
 		}
@@ -67,6 +79,11 @@ func (d *planDevice) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.Unmarshal(body, &plan)
 		d.steps = plan.Steps
+
+		if d.acceptWith != "" {
+			_, _ = io.WriteString(w, d.acceptWith)
+			return
+		}
 
 		_, _ = io.WriteString(w, "movement plan executed.")
 	case "GET /v2/movement":
@@ -97,6 +114,15 @@ func (d *planDevice) forget() {
 	defer d.mu.Unlock()
 
 	d.steps = nil
+}
+
+// downgrade drops the /v2 routes, like flashing firmware built without API_V2 does.
+func (d *planDevice) downgrade() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.steps = nil
+	d.unsupported = true
 }
 
 func (d *planDevice) runCount() int {
@@ -246,6 +272,47 @@ func TestMovementPlanResourceRejected(t *testing.T) {
 	})
 }
 
+// The stored plan decides whether the device accepted it, not the wording of its answer.
+func TestMovementPlanResourceAnswerWording(t *testing.T) {
+	device := newPlanDevice(t)
+	device.acceptWith = "plan stored"
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: movementPlanConfig(device.URL, 25, 0),
+				Check:  device.checkUploads(25),
+			},
+		},
+	})
+}
+
+// A device without the /v2 routes has no plan, and Create explains the missing support.
+func TestMovementPlanResourceUnsupported(t *testing.T) {
+	device := newPlanDevice(t)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: movementPlanConfig(device.URL, 25, 0),
+				Check:  device.checkUploads(25),
+			},
+			{
+				PreConfig: device.downgrade,
+				Config:    movementPlanConfig(device.URL, 25, 0),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("pathfinder_movement_plan.test", plancheck.ResourceActionCreate),
+					},
+				},
+				ExpectError: regexp.MustCompile(`doesn't support movement plans`),
+			},
+		},
+	})
+}
+
 func TestMovementPlanResourceInvalidDistance(t *testing.T) {
 	device := newPlanDevice(t)
 
@@ -270,6 +337,11 @@ func TestMovementPlanResourceInvalidDistance(t *testing.T) {
 			},
 		},
 	})
+}
+
+// Actions need Terraform 1.14 or later.
+var actionVersionChecks = []tfversion.TerraformVersionCheck{
+	tfversion.SkipBelow(tfversion.Version1_14_0),
 }
 
 func runMovementConfig(address string) string {
@@ -301,6 +373,7 @@ func TestRunMovementAction(t *testing.T) {
 
 	resource.UnitTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		TerraformVersionChecks:   actionVersionChecks,
 		Steps: []resource.TestStep{
 			{
 				Config: runMovementConfig(device.URL),
@@ -335,6 +408,7 @@ func TestRunMovementActionFailed(t *testing.T) {
 
 	resource.UnitTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		TerraformVersionChecks:   actionVersionChecks,
 		Steps: []resource.TestStep{
 			{
 				Config:      runMovementConfig(device.URL),

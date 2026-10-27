@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/hashicorp-dev-advocates/terraform-provider-pathfinder/internal/clients"
@@ -27,10 +28,6 @@ import (
 
 // Ensure provider defined types fully satisfy framework interfaces.
 var _ resource.Resource = &MovementPlanResource{}
-
-// movementPlanUploaded is the body of the device's answer to an accepted plan. The device
-// answers a plan it refuses with HTTP 200 as well, with the reason as the body.
-const movementPlanUploaded = "movement plan executed."
 
 func NewMovementPlanResource() resource.Resource {
 	return &MovementPlanResource{}
@@ -110,7 +107,7 @@ func (r *MovementPlanResource) Schema(ctx context.Context, req resource.SchemaRe
 						},
 						// The device stores the distance as a whole number
 						"distance": schema.Int64Attribute{
-							MarkdownDescription: "Distance to move the device in meters, as a whole number.",
+							MarkdownDescription: "Distance to move the device, as a whole number. It has no fixed unit: the device drives its motors with PWM, so the distance covered depends on the device and the surface.",
 							Required:            true,
 							Validators: []validator.Int64{
 								int64validator.Between(1, 100),
@@ -139,7 +136,10 @@ func (r *MovementPlanResource) Configure(ctx context.Context, req resource.Confi
 	r.client = client
 }
 
-// uploadPlan sends a plan to the device and checks the answer for a refusal.
+// errMovementPlanUnsupported explains a device that answers HTTP 404 on the /v2 movement routes.
+var errMovementPlanUnsupported = errors.New("the device doesn't support movement plans: its firmware needs to be built with API_V2")
+
+// uploadPlan sends a plan to the device and checks that the device stores it.
 func (r *MovementPlanResource) uploadPlan(ctx context.Context, name string, steps []model.MovementStepItem) error {
 	body, err := r.client.Do(ctx, http.MethodPost, "/v2/movement", model.MovementRequest{
 		Name: name,
@@ -147,15 +147,44 @@ func (r *MovementPlanResource) uploadPlan(ctx context.Context, name string, step
 		Persist: false,
 		Steps:   steps,
 	}, clients.DefaultTimeout)
+
+	var statusErr *clients.StatusError
+	if errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("%w: %w", errMovementPlanUnsupported, err)
+	}
+
 	if err != nil {
 		return err
 	}
 
-	if answer := strings.TrimSpace(string(body)); answer != movementPlanUploaded {
-		return fmt.Errorf("the device refused the movement plan: %s", answer)
+	// The device answers HTTP 200 to a plan it refuses as well, with the reason as the body,
+	// so the plan it stores is the only reliable answer
+	stored, err := r.readPlan(ctx)
+	if err != nil {
+		return err
+	}
+
+	if !slices.Equal(stored, steps) {
+		return fmt.Errorf("the device refused the movement plan: %s", strings.TrimSpace(string(body)))
 	}
 
 	return nil
+}
+
+// readPlan returns the plan that is stored on the device, which is empty when there is none.
+func (r *MovementPlanResource) readPlan(ctx context.Context) ([]model.MovementStepItem, error) {
+	body, err := r.client.Do(ctx, http.MethodGet, "/v2/movement", nil, clients.DefaultTimeout)
+	if err != nil {
+		return nil, err
+	}
+
+	// An empty plan is serialised as JSON null, which leaves the slice empty
+	var steps []model.MovementStepItem
+	if err := json.Unmarshal(body, &steps); err != nil {
+		return nil, fmt.Errorf("the device answered with a movement plan that isn't a list of steps: %q", strings.TrimSpace(string(body)))
+	}
+
+	return steps, nil
 }
 
 func (r *MovementPlanResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -201,23 +230,20 @@ func (r *MovementPlanResource) Read(ctx context.Context, req resource.ReadReques
 		return
 	}
 
-	body, err := r.client.Do(ctx, http.MethodGet, "/v2/movement", nil, clients.DefaultTimeout)
+	deviceSteps, err := r.readPlan(ctx)
+
+	// The device has no plan when it doesn't know the route, so Create explains the missing support
+	var statusErr *clients.StatusError
+	if errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Read Resource",
 			"An error occurred while reading the movement plan from the device.\n\n"+
 				"Error: "+err.Error(),
-		)
-
-		return
-	}
-
-	// An empty plan is serialised as JSON null, which leaves the slice empty
-	var deviceSteps []model.MovementStepItem
-	if err := json.Unmarshal(body, &deviceSteps); err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to Read Resource",
-			fmt.Sprintf("The device answered with a movement plan that isn't a list of steps: %q", strings.TrimSpace(string(body))),
 		)
 
 		return
@@ -270,8 +296,7 @@ func (r *MovementPlanResource) Delete(ctx context.Context, req resource.DeleteRe
 	err := r.uploadPlan(ctx, data.Name.ValueString(), []model.MovementStepItem{})
 
 	// The device has nothing to clear when it doesn't know the route
-	var statusErr *clients.StatusError
-	if errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound {
+	if errors.Is(err, errMovementPlanUnsupported) {
 		return
 	}
 

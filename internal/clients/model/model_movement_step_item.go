@@ -9,6 +9,6 @@ type MovementStepItem struct {
 	Angle int64 `json:"angle"`
 	// Direction of movement
 	Direction string `json:"direction"`
-	// Distance (in centimeters) of movement
+	// Distance of movement, without a fixed unit: the device drives its motors with PWM
 	Distance float64 `json:"distance"`
 }

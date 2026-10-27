@@ -4,6 +4,7 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,6 +12,9 @@ import (
 	"testing"
 
 	"github.com/hashicorp-dev-advocates/terraform-provider-pathfinder/internal/clients/model"
+	fwresource "github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
@@ -126,4 +130,61 @@ func TestMovementResourceInvalidAngle(t *testing.T) {
 			},
 		},
 	})
+}
+
+// State from schema version 0 keeps its steps, with the fraction of the distance dropped like the device does.
+func TestMovementResourceUpgradeState(t *testing.T) {
+	ctx := context.Background()
+	r := &MovementResource{}
+	upgrader := r.UpgradeState(ctx)[0]
+
+	priorType := upgrader.PriorSchema.Type().TerraformType(ctx)
+	priorObject, ok := priorType.(tftypes.Object)
+	if !ok {
+		t.Fatalf("prior schema type is not an object: %s", priorType)
+	}
+
+	stepsType, ok := priorObject.AttributeTypes["steps"].(tftypes.List)
+	if !ok {
+		t.Fatalf("prior steps type is not a list: %s", priorObject.AttributeTypes["steps"])
+	}
+	prior := tftypes.NewValue(priorType, map[string]tftypes.Value{
+		"id":      tftypes.NewValue(tftypes.String, "main"),
+		"name":    tftypes.NewValue(tftypes.String, "main"),
+		"persist": tftypes.NewValue(tftypes.Bool, true),
+		"steps": tftypes.NewValue(stepsType, []tftypes.Value{
+			tftypes.NewValue(stepsType.ElementType, map[string]tftypes.Value{
+				"angle":     tftypes.NewValue(tftypes.Number, 90),
+				"direction": tftypes.NewValue(tftypes.String, "forward"),
+				"distance":  tftypes.NewValue(tftypes.Number, 2.5),
+			}),
+		}),
+	})
+
+	var current fwresource.SchemaResponse
+	r.Schema(ctx, fwresource.SchemaRequest{}, &current)
+
+	req := fwresource.UpgradeStateRequest{State: &tfsdk.State{Schema: *upgrader.PriorSchema, Raw: prior}}
+	resp := fwresource.UpgradeStateResponse{State: tfsdk.State{
+		Schema: current.Schema,
+		Raw:    tftypes.NewValue(current.Schema.Type().TerraformType(ctx), nil),
+	}}
+	upgrader.StateUpgrader(ctx, req, &resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", resp.Diagnostics)
+	}
+
+	var data MovementResourceModel
+	if diags := resp.State.Get(ctx, &data); diags.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", diags)
+	}
+
+	if data.Id.ValueString() != "main" || !data.Persist.ValueBool() || len(data.Steps) != 1 {
+		t.Fatalf("unexpected state: %+v", data)
+	}
+
+	if step := data.Steps[0]; step.Angle.ValueInt64() != 90 || step.Direction.ValueString() != "forward" || step.Distance.ValueInt64() != 2 {
+		t.Fatalf("unexpected step: %+v", step)
+	}
 }
