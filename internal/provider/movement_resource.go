@@ -31,8 +31,9 @@ var _ resource.Resource = &MovementResource{}
 var _ resource.ResourceWithUpgradeState = &MovementResource{}
 
 // movementTimeout bounds a movement plan request. The device responds once it has run
-// every step, and 50 steps of the longest turn and distance take about 10 minutes.
-const movementTimeout = 15 * time.Minute
+// every step, which takes about 12 seconds for the longest turn and distance, so 5 minutes
+// covers about 25 of those steps.
+const movementTimeout = 5 * time.Minute
 
 func NewMovementResource() resource.Resource {
 	return &MovementResource{}

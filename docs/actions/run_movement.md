@@ -9,7 +9,7 @@ description: |-
 
 Runs the movement plan that is stored on the device, such as one uploaded by `pathfinder_movement_plan`. The device moves while the action runs.
 
-Actions require Terraform 1.14 or later. The action returns once the device has finished moving, or fails after 15 minutes.
+Actions require Terraform 1.14 or later. The action returns once the device has finished moving, or fails after 5 minutes.
 
 ## Example Usage
 
